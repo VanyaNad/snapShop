@@ -1,0 +1,65 @@
+{% extends 'shop/base.html' %}
+{% block content %}
+<h1>My Purchases</h1>
+
+<h2>Purchased Products</h2>
+<div class="row">
+    {% for purchase in purchased_products %}
+    <div class="col-md-4">
+        <div class="card mb-4 shadow-sm">
+            <div class="card-body">
+                <h5 class="card-title">{{ purchase.product.name }}</h5>
+                <p class="card-text">Quantity: {{ purchase.quantity }}</p>
+                <p class="card-text">Price per unit: ${{ purchase.product.price }}</p>
+                <p class="card-text">Total: ${{ purchase.total_price }}</p>
+
+                {% if purchase.can_return %}
+                <form method="get" action="{% url 'request_return' purchase.id %}">
+                    <button type="submit" class="btn btn-warning btn-sm">Return</button>
+                </form>
+                {% else %}
+                <button class="btn btn-secondary btn-sm" disabled>Return Expired</button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% empty %}
+    <p>No purchased products available.</p>
+    {% endfor %}
+</div>
+
+<h2>Pending Return Requests</h2>
+<div class="row">
+    {% for request in pending_requests %}
+    <div class="col-md-4">
+        <div class="card mb-4 shadow-sm">
+            <div class="card-body">
+                <h5 class="card-title">{{ request.purchase.product.name }}</h5>
+                <p class="card-text">Quantity: {{ request.quantity }}</p>
+                <p class="card-text">Status: Pending</p>
+                <p class="card-text">Reason: {{ request.reason }}</p>
+            </div>
+        </div>
+    </div>
+    {% empty %}
+    <p>No pending return requests.</p>
+    {% endfor %}
+</div>
+
+<h2>Returned Products</h2>
+<div class="row">
+    {% for request in returned_products %}
+    <div class="col-md-4">
+        <div class="card mb-4 shadow-sm">
+            <div class="card-body">
+                <h5 class="card-title">{{ request.purchase.product.name }}</h5>
+                <p class="card-text">Quantity: {{ request.quantity }}</p>
+                <p class="card-text">Status: Approved</p>
+            </div>
+        </div>
+    </div>
+    {% empty %}
+    <p>No returned products available.</p>
+    {% endfor %}
+</div>
+{% endblock %}
