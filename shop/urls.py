@@ -13,8 +13,6 @@ from .views import (
     EditProductView,
     AddProductView,
     DeleteProductView,
-
-
 )
 
 urlpatterns = [

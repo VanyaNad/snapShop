@@ -41,15 +41,16 @@
     </tbody>
 </table>
 
-<div class="d-flex justify-content-center">
-    {% if return_requests.has_previous %}
-    <a href="?page={{ return_requests.previous_page_number }}" class="btn btn-secondary me-2">Previous</a>
-    {% endif %}
-    {% if return_requests.has_next %}
-    <a href="?page={{ return_requests.next_page_number }}" class="btn btn-secondary">Next</a>
-    {% endif %}
-</div>
 {% else %}
 <p>No pending return requests found.</p>
 {% endif %}
+<div class="d-flex justify-content-center mt-4">
+    {% if page_obj.has_previous %}
+    <a href="?page={{ page_obj.previous_page_number }}" class="btn btn-secondary me-2">Previous</a>
+    {% endif %}
+    <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+    {% if page_obj.has_next %}
+    <a href="?page={{ page_obj.next_page_number }}" class="btn btn-secondary ms-2">Next</a>
+    {% endif %}
+</div>
 {% endblock %}

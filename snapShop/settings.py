@@ -119,7 +119,7 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATICFILES_DIRS = [
-    BASE_DIR / 'static',
+    BASE_DIR / 'shop/static',
 ]
 
 
@@ -137,9 +137,8 @@ LOGOUT_REDIRECT_URL = '/'
 LOGIN_REDIRECT_URL = '/'
 AUTH_USER_MODEL = 'shop.User'
 
-PRODUCTS_PAGINATION = 10
-RETURN_REQUESTS_PAGINATION = 10
-ADMIN_DASHBOARD_PAGINATION = 5
+RETURN_REQUESTS_PAGINATION = 5
+ADMIN_DASHBOARD_PAGINATION = 6
 
 MESSAGES = {
     'login_required': "You must be logged in to perform this action.",

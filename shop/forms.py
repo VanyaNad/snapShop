@@ -29,3 +29,13 @@ class ReturnRequestForm(forms.ModelForm):
     class Meta:
         model = ReturnRequest
         fields = ['quantity', 'reason']
+
+
+class PurchaseForm(forms.Form):
+    """
+    Form for validating purchase quantities.
+    """
+    quantity = forms.IntegerField(min_value=1, error_messages={
+        'required': "Please enter a quantity.",
+        'min_value': "Quantity must be at least 1."
+    })

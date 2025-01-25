@@ -34,12 +34,12 @@
 </table>
 
 <div class="d-flex justify-content-center mt-4">
-    {% if products.has_previous %}
-    <a href="?page={{ products.previous_page_number }}" class="btn btn-secondary me-2">Previous</a>
+    {% if page_obj.has_previous %}
+    <a href="?page={{ page_obj.previous_page_number }}" class="btn btn-secondary me-2">Previous</a>
     {% endif %}
-    <span>Page {{ products.number }} of {{ products.paginator.num_pages }}</span>
-    {% if products.has_next %}
-    <a href="?page={{ products.next_page_number }}" class="btn btn-secondary ms-2">Next</a>
+    <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+    {% if page_obj.has_next %}
+    <a href="?page={{ page_obj.next_page_number }}" class="btn btn-secondary ms-2">Next</a>
     {% endif %}
 </div>
 

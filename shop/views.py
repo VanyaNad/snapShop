@@ -4,82 +4,123 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.utils.timezone import now
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
-from django.views.generic import ListView, TemplateView, View, CreateView, UpdateView
+from django.views.generic import ListView, TemplateView, View, CreateView, UpdateView, FormView
 from .models import Product, Purchase, ReturnRequest, User
-from .forms import ReturnRequestForm, RegisterForm, ProductForm
+from .forms import ReturnRequestForm, RegisterForm, ProductForm, PurchaseForm
 from django.contrib.auth.mixins import UserPassesTestMixin, LoginRequiredMixin
 
 
 class SuperuserRequiredMixin(UserPassesTestMixin):
     """
-    Mixin to restrict access to superuser-only views.
+    Mixin to restrict access to superuser only views
     """
     def test_func(self) -> bool:
         return self.request.user.is_superuser
 
 
-class CreatePurchaseView(View):
+class CreatePurchaseView(FormView):
     """
-    Handles the creation of purchases for logged-in users.
+    Handles the creation of purchases for logged-in users using FormView.
     """
-    def post(self, request: HttpRequest, product_id: int) -> HttpResponseRedirect:
-        if not request.user.is_authenticated:
-            messages.error(request, settings.MESSAGES.get('login_required', "You must be logged in to make a purchase."))
+    form_class = PurchaseForm
+    success_url = reverse_lazy('purchase_list')
+
+    def form_valid(self, form: PurchaseForm) -> HttpResponseRedirect:
+        """
+        Handles the logic when the form is valid.
+        """
+        product: Product = get_object_or_404(Product, id=self.kwargs['product_id'])
+        quantity: int = form.cleaned_data['quantity']
+
+        if not self.request.user.is_authenticated:
+            messages.error(self.request, settings.MESSAGES.get('login_required'))
             return redirect('login')
 
-        product = get_object_or_404(Product, id=product_id)
-        quantity = int(request.POST.get('quantity', 0))
+        if quantity > product.stock:
+            messages.error(self.request, settings.MESSAGES.get('insufficient_stock').format(stock=product.stock))
+            return redirect(self.success_url)
 
-        if quantity <= 0:
-            messages.error(request, settings.MESSAGES.get('invalid_quantity', "Invalid quantity selected."))
-        elif quantity > product.stock:
-            messages.error(request, settings.MESSAGES.get('insufficient_stock', "Not enough stock available.")
-                           .format(stock=product.stock))
-        elif (total_price := quantity * product.price) > request.user.wallet:
-            messages.error(request, settings.MESSAGES.get('insufficient_funds', "Insufficient funds."))
-        else:
-            product.stock -= quantity
-            product.save()
-            request.user.wallet -= total_price
-            request.user.save()
-            Purchase.objects.create(user=request.user, product=product, quantity=quantity)
-            messages.success(request, settings.MESSAGES.get('purchase_success', "Purchase successful.")
-                             .format(quantity=quantity, product=product.name))
-        return redirect('purchase_list')
+        total_price: float = quantity * product.price
+        if total_price > self.request.user.wallet:
+            messages.error(self.request, settings.MESSAGES.get('insufficient_funds'))
+            return redirect(self.success_url)
+
+        # Update product stock and user's wallet
+        product.stock -= quantity
+        product.save()
+        self.request.user.wallet -= total_price
+        self.request.user.save()
+
+        # Create purchase record
+        Purchase.objects.create(user=self.request.user, product=product, quantity=quantity)
+        messages.success(
+            self.request,
+            settings.MESSAGES.get('purchase_success').format(quantity=quantity, product=product.name)
+        )
+        return super().form_valid(form)
+
+    def form_invalid(self, form: PurchaseForm) -> HttpResponseRedirect:
+        """
+        Handles the logic when the form is invalid.
+        """
+        messages.error(self.request, settings.MESSAGES.get('invalid_quantity', "Invalid quantity selected."))
+        return redirect(self.success_url)
 
 
-class RequestReturnView(View):
+class RequestReturnView(LoginRequiredMixin, FormView):
     """
-    Handles the return request process for purchases.
+    Handles the return request for purchases.
     """
-    def get(self, request: HttpRequest, purchase_id: int) -> HttpResponse:
-        purchase = get_object_or_404(Purchase, id=purchase_id, user=request.user)
-        form = ReturnRequestForm(max_quantity=purchase.quantity)
-        return render(request, 'shop/return_form.html', {'form': form, 'purchase': purchase})
+    template_name = 'shop/return_form.html'
+    form_class = ReturnRequestForm
 
-    def post(self, request: HttpRequest, purchase_id: int) -> HttpResponseRedirect:
-        purchase = get_object_or_404(Purchase, id=purchase_id, user=request.user)
+    def get_form_kwargs(self):
+        """
+        Provide additional arguments to the form, including max_quantiy for validation.
+        """
+        kwargs = super().get_form_kwargs()
+        self.purchase = get_object_or_404(Purchase, id=self.kwargs['purchase_id'], user=self.request.user)
+        kwargs['max_quantity'] = self.purchase.quantity
+        return kwargs
 
-        if (now() - purchase.created_at).seconds > settings.RETURN_REQUEST_EXPIRATION + 180:
-            messages.error(request, settings.MESSAGES.get('return_expired', "Return period has expired."))
-            return redirect('purchase_list')
+    def get_context_data(self, **kwargs):
+        """
+        Add the purchase to the template context
+        """
+        context = super().get_context_data(**kwargs)
+        context['purchase'] = self.purchase
+        return context
 
-        form = ReturnRequestForm(request.POST, max_quantity=purchase.quantity)
-        if form.is_valid():
-            return_request = form.save(commit=False)
-            return_request.purchase = purchase
-            return_request.status = 'pending'
-            return_request.save()
-            purchase.quantity -= return_request.quantity
-            purchase.save()
-            messages.success(
-                request,
-                settings.MESSAGES.get('return_request_success', "Return request submitted.")
-                .format(quantity=return_request.quantity),
-            )
-        else:
-            messages.error(request, settings.MESSAGES.get('invalid_quantity', "Invalid quantity."))
-        return redirect('purchase_list')
+    def form_valid(self, form):
+        """
+        Process a valid form submission by creating a return request.
+        """
+        if (now() - self.purchase.created_at).seconds > settings.RETURN_REQUEST_EXPIRATION:
+            messages.error(self.request, settings.MESSAGES.get('return_expired', "Return period has expired."))
+            return HttpResponseRedirect(reverse_lazy('purchase_list'))
+
+        # Create the return request and update the purchase
+        return_request = form.save(commit=False)
+        return_request.purchase = self.purchase
+        return_request.status = 'pending'
+        return_request.save()
+
+        self.purchase.quantity -= return_request.quantity
+        self.purchase.save()
+
+        messages.success(
+            self.request,
+            settings.MESSAGES.get('return_request_success', "Return request submitted.")
+            .format(quantity=return_request.quantity),
+        )
+        return HttpResponseRedirect(reverse_lazy('purchase_list'))
+
+    def form_invalid(self, form):
+        """
+        Handle invalid form submission by redirecting back to the purchase list with an error message.
+        """
+        messages.error(self.request, settings.MESSAGES.get('invalid_quantity', "Invalid quantity."))
+        return self.render_to_response(self.get_context_data(form=form))
 
 
 class ReturnRequestsListView(SuperuserRequiredMixin, ListView):
@@ -198,36 +239,53 @@ class EditProductView(SuperuserRequiredMixin, UpdateView):
 
 class DeleteProductView(SuperuserRequiredMixin, View):
     """
-    Allows admin to delete a product, provided there are no pending return requests.
+    Allows admin to delete a product
     """
     def post(self, request: HttpRequest, pk: int) -> HttpResponseRedirect:
         product = get_object_or_404(Product, pk=pk)
 
-        # Check if the product has pending return requests
-        if ReturnRequest.objects.filter(purchase__product=product, status='pending').exists():
-            messages.error(
-                request,
-                settings.MESSAGES.get(
-                    'product_delete_error',
-                    "Cannot delete product with pending return requests."
-                )
+        if self.has_pending_return_requests(product):
+            return self.form_invalid(request, product)
+        return self.form_valid(request, product)
+
+    def has_pending_return_requests(self, product: Product) -> bool:
+        """
+        Check if the product has any pending return requests.
+        """
+        return ReturnRequest.objects.filter(purchase__product=product, status='pending').exists()
+
+    def form_valid(self, request: HttpRequest, product: Product) -> HttpResponseRedirect:
+        """
+        Handle the valid case where the product can be deleted.
+        """
+        product_name = product.name
+        product.delete()
+        messages.success(
+            request,
+            settings.MESSAGES.get(
+                'product_deleted',
+                f'Product "{product_name}" deleted successfully.'
             )
-        else:
-            product_name = product.name
-            product.delete()
-            messages.success(
-                request,
-                settings.MESSAGES.get(
-                    'product_deleted',
-                    f'Product "{product_name}" deleted successfully.'
-                )
+        )
+        return redirect('manage_products')
+
+    def form_invalid(self, request: HttpRequest, product: Product) -> HttpResponseRedirect:
+        """
+        Handle the invalid case where the product cannot be deleted due to pending return requests.
+        """
+        messages.error(
+            request,
+            settings.MESSAGES.get(
+                'product_delete_error',
+                "Cannot delete product with pending return requests."
             )
+        )
         return redirect('manage_products')
 
 
 class ManageReturnRequestsView(SuperuserRequiredMixin, ListView):
     """
-    Displays and manages the list of return requests for admin users.
+    Displays and manages the list of return requests for admin users
     """
     model = ReturnRequest
     template_name = 'shop/manage_return_requests.html'
@@ -247,27 +305,62 @@ class ManageReturnRequestsView(SuperuserRequiredMixin, ListView):
         action = request.POST.get('action')
         return_request_id = request.POST.get('return_request_id')
 
-        if action in ['approve', 'reject'] and return_request_id:
+        if not action or action not in ['approve', 'reject']:
+            return self.form_invalid(request, error_message="Invalid action specified.")
+
+        if not return_request_id:
+            return self.form_invalid(request, error_message="Return request ID is missing.")
+
+        try:
             return_request = get_object_or_404(ReturnRequest, id=return_request_id)
-            purchase = return_request.purchase
+        except ReturnRequest.DoesNotExist:
+            return self.form_invalid(request, error_message="Return request not found.")
 
-            if action == 'approve':
-                # Approve logic
-                purchase.product.stock += return_request.quantity
-                purchase.product.save()
-                purchase.user.wallet += return_request.quantity * purchase.product.price
-                purchase.user.save()
-                purchase.quantity = max(0, purchase.quantity - return_request.quantity)
-                return_request.status = 'approved'
-                messages.success(request, settings.MESSAGES['return_approved'].format(quantity=return_request.quantity))
-
-            elif action == 'reject':
-                # Reject logic
-                purchase.quantity += return_request.quantity
-                purchase.save()
-                return_request.status = 'rejected'
-                messages.info(request, settings.MESSAGES['return_rejected'].format(quantity=return_request.quantity))
-
-            return_request.save()
+        if action == 'approve':
+            return self.handle_approve(request, return_request)
+        elif action == 'reject':
+            return self.handle_reject(request, return_request)
 
         return redirect('manage_return_requests')
+
+    def handle_approve(self, request: HttpRequest, return_request: ReturnRequest) -> HttpResponseRedirect:
+        """
+        Approves the return request and adjusts the stock, wallet, and purchase quantities.
+        """
+        purchase = return_request.purchase
+        purchase.product.stock += return_request.quantity
+        purchase.product.save()
+
+        purchase.user.wallet += return_request.quantity * purchase.product.price
+        purchase.user.save()
+
+        purchase.quantity = max(0, purchase.quantity - return_request.quantity)
+        purchase.save()
+
+        return_request.status = 'approved'
+        return_request.save()
+
+        messages.success(request, settings.MESSAGES['return_approved'].format(quantity=return_request.quantity))
+        return redirect('manage_return_requests')
+
+    def handle_reject(self, request: HttpRequest, return_request: ReturnRequest) -> HttpResponseRedirect:
+        """
+        Rejects the return request and restores the purchase quantity.
+        """
+        purchase = return_request.purchase
+        purchase.quantity += return_request.quantity
+        purchase.save()
+
+        return_request.status = 'rejected'
+        return_request.save()
+
+        messages.info(request, settings.MESSAGES['return_rejected'].format(quantity=return_request.quantity))
+        return redirect('manage_return_requests')
+
+    def form_invalid(self, request: HttpRequest, error_message: str) -> HttpResponseRedirect:
+        """
+        Handles invalid cases such as missing data or invalid actions.
+        """
+        messages.error(request, error_message)
+        return redirect('manage_return_requests')
+
