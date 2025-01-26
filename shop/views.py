@@ -6,7 +6,8 @@ from django.utils.timezone import now
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.views.generic import ListView, TemplateView, View, CreateView, UpdateView, FormView
 from .models import Product, Purchase, ReturnRequest, User
-from .forms import ReturnRequestForm, RegisterForm, ProductForm, PurchaseForm
+from .forms import ReturnRequestForm, RegisterForm, ProductForm, PurchaseForm, DeleteProductForm, \
+    ReturnRequestActionForm
 from django.contrib.auth.mixins import UserPassesTestMixin, LoginRequiredMixin
 
 
@@ -237,53 +238,44 @@ class EditProductView(SuperuserRequiredMixin, UpdateView):
         return super().form_valid(form)
 
 
-class DeleteProductView(SuperuserRequiredMixin, View):
+class DeleteProductView(SuperuserRequiredMixin, FormView):
     """
     Allows admin to delete a product
     """
-    def post(self, request: HttpRequest, pk: int) -> HttpResponseRedirect:
-        product = get_object_or_404(Product, pk=pk)
+    form_class = DeleteProductForm
+    success_url = reverse_lazy('manage_products')
 
-        if self.has_pending_return_requests(product):
-            return self.form_invalid(request, product)
-        return self.form_valid(request, product)
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs.update({'product_id': self.kwargs['pk']})
+        return kwargs
 
-    def has_pending_return_requests(self, product: Product) -> bool:
+    def form_valid(self, form):
         """
-        Check if the product has any pending return requests.
+        Handle valid form
         """
-        return ReturnRequest.objects.filter(purchase__product=product, status='pending').exists()
-
-    def form_valid(self, request: HttpRequest, product: Product) -> HttpResponseRedirect:
-        """
-        Handle the valid case where the product can be deleted.
-        """
+        product = form.cleaned_data['product']
         product_name = product.name
         product.delete()
         messages.success(
-            request,
+            self.request,
             settings.MESSAGES.get(
                 'product_deleted',
                 f'Product "{product_name}" deleted successfully.'
             )
         )
-        return redirect('manage_products')
+        return super().form_valid(form)
 
-    def form_invalid(self, request: HttpRequest, product: Product) -> HttpResponseRedirect:
+    def form_invalid(self, form):
         """
-        Handle the invalid case where the product cannot be deleted due to pending return requests.
+        Handle invalid form
         """
-        messages.error(
-            request,
-            settings.MESSAGES.get(
-                'product_delete_error',
-                "Cannot delete product with pending return requests."
-            )
-        )
-        return redirect('manage_products')
+        for error in form.errors.values():
+            messages.error(self.request, error)
+        return redirect(self.success_url)
 
 
-class ManageReturnRequestsView(SuperuserRequiredMixin, ListView):
+class ManageReturnRequestsView(SuperuserRequiredMixin, ListView, FormView):
     """
     Displays and manages the list of return requests for admin users
     """
@@ -291,39 +283,24 @@ class ManageReturnRequestsView(SuperuserRequiredMixin, ListView):
     template_name = 'shop/manage_return_requests.html'
     context_object_name = 'return_requests'
     paginate_by = settings.RETURN_REQUESTS_PAGINATION
+    form_class = ReturnRequestActionForm
 
     def get_queryset(self):
-        """
-        Fetch all return requests sorted by creation date.
-        """
         return ReturnRequest.objects.filter(status='pending').order_by('-created_at')
 
-    def post(self, request: HttpRequest, *args, **kwargs) -> HttpResponseRedirect:
+    def form_valid(self, form):
         """
-        Handles the approval or rejection of a return request.
+        Handle valid form
         """
-        action = request.POST.get('action')
-        return_request_id = request.POST.get('return_request_id')
-
-        if not action or action not in ['approve', 'reject']:
-            return self.form_invalid(request, error_message="Invalid action specified.")
-
-        if not return_request_id:
-            return self.form_invalid(request, error_message="Return request ID is missing.")
-
-        try:
-            return_request = get_object_or_404(ReturnRequest, id=return_request_id)
-        except ReturnRequest.DoesNotExist:
-            return self.form_invalid(request, error_message="Return request not found.")
+        action = form.cleaned_data['action']
+        return_request = form.cleaned_data['return_request']
 
         if action == 'approve':
-            return self.handle_approve(request, return_request)
+            return self.handle_approve(return_request)
         elif action == 'reject':
-            return self.handle_reject(request, return_request)
+            return self.handle_reject(return_request)
 
-        return redirect('manage_return_requests')
-
-    def handle_approve(self, request: HttpRequest, return_request: ReturnRequest) -> HttpResponseRedirect:
+    def handle_approve(self, return_request: ReturnRequest):
         """
         Approves the return request and adjusts the stock, wallet, and purchase quantities.
         """
@@ -340,10 +317,10 @@ class ManageReturnRequestsView(SuperuserRequiredMixin, ListView):
         return_request.status = 'approved'
         return_request.save()
 
-        messages.success(request, settings.MESSAGES['return_approved'].format(quantity=return_request.quantity))
+        messages.success(self.request, settings.MESSAGES['return_approved'].format(quantity=return_request.quantity))
         return redirect('manage_return_requests')
 
-    def handle_reject(self, request: HttpRequest, return_request: ReturnRequest) -> HttpResponseRedirect:
+    def handle_reject(self, return_request: ReturnRequest):
         """
         Rejects the return request and restores the purchase quantity.
         """
@@ -354,13 +331,12 @@ class ManageReturnRequestsView(SuperuserRequiredMixin, ListView):
         return_request.status = 'rejected'
         return_request.save()
 
-        messages.info(request, settings.MESSAGES['return_rejected'].format(quantity=return_request.quantity))
+        messages.info(self.request, settings.MESSAGES['return_rejected'].format(quantity=return_request.quantity))
         return redirect('manage_return_requests')
 
-    def form_invalid(self, request: HttpRequest, error_message: str) -> HttpResponseRedirect:
+    def form_invalid(self, form):
         """
         Handles invalid cases such as missing data or invalid actions.
         """
-        messages.error(request, error_message)
+        messages.error(self.request, "Invalid action or data.")
         return redirect('manage_return_requests')
-
