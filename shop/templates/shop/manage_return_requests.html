@@ -1,0 +1,56 @@
+{% extends 'shop/base.html' %}
+{% block content %}
+<h1 class="text-center my-4">Manage Return Requests</h1>
+
+{% if return_requests %}
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>Product</th>
+            <th>User</th>
+            <th>Quantity</th>
+            <th>Reason</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for request in return_requests %}
+        <tr>
+            <td>{{ forloop.counter }}</td>
+            <td>{{ request.purchase.product.name }}</td>
+            <td>{{ request.purchase.user.username }}</td>
+            <td>{{ request.quantity }}</td>
+            <td>{{ request.reason }}</td>
+            <td>
+                <form method="post" action="{% url 'manage_return_requests' %}">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="approve">
+    <input type="hidden" name="return_request_id" value="{{ request.id }}">
+    <button type="submit" class="btn btn-success btn-sm">Approve</button>
+</form>
+<form method="post" action="{% url 'manage_return_requests' %}">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="reject">
+    <input type="hidden" name="return_request_id" value="{{ request.id }}">
+    <button type="submit" class="btn btn-danger btn-sm">Reject</button>
+</form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{% else %}
+<p>No pending return requests found.</p>
+{% endif %}
+<div class="d-flex justify-content-center mt-4">
+    {% if page_obj.has_previous %}
+    <a href="?page={{ page_obj.previous_page_number }}" class="btn btn-secondary me-2">Previous</a>
+    {% endif %}
+    <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+    {% if page_obj.has_next %}
+    <a href="?page={{ page_obj.next_page_number }}" class="btn btn-secondary ms-2">Next</a>
+    {% endif %}
+</div>
+{% endblock %}

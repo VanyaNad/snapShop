@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "shop"
 ]
 
 MIDDLEWARE = [
@@ -54,7 +55,7 @@ ROOT_URLCONF = "snapShop.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [BASE_DIR / 'templates']
+        "DIRS": [BASE_DIR / 'shop/templates/shop']
         ,
         "APP_DIRS": True,
         "OPTIONS": {
@@ -117,8 +118,44 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
 STATIC_URL = "static/"
+STATICFILES_DIRS = [
+    BASE_DIR / 'shop/static',
+]
+
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+LOGIN_URL = '/login/'
+LOGOUT_REDIRECT_URL = '/'
+LOGIN_REDIRECT_URL = '/'
+AUTH_USER_MODEL = 'shop.User'
+
+RETURN_REQUESTS_PAGINATION = 5
+ADMIN_DASHBOARD_PAGINATION = 6
+
+MESSAGES = {
+    'login_required': "You must be logged in to perform this action.",
+    'invalid_quantity': "Invalid quantity selected.",
+    'insufficient_stock': "Not enough stock available. Only {stock} left.",
+    'insufficient_funds': "You do not have enough funds to complete this purchase.",
+    'purchase_success': "You have successfully purchased {quantity} {product}(s).",
+    'return_expired': "The return period has expired.",
+    'return_request_success': "Your return request for {quantity} item(s) has been submitted.",
+    'return_approved': "Return request for {quantity} item(s) approved.",
+    'return_rejected': "Return request for {quantity} item(s) rejected.",
+    'product_added': "Product added successfully.",
+    'product_updated': "Product updated successfully.",
+    'product_deleted': "Product deleted successfully.",
+    'product_delete_error': "Cannot delete product with pending return requests.",
+
+}
+
+DEFAULT_USER_WALLET_BALANCE = 10000.00
+RETURN_REQUEST_EXPIRATION = 180

@@ -1,0 +1,10 @@
+{% extends 'shop/base.html' %}
+{% block title %}Return Request{% endblock %}
+{% block content %}
+<h1>Return Request for {{ purchase.product.name }}</h1>
+<form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit">Submit</button>
+</form>
+{% endblock %}

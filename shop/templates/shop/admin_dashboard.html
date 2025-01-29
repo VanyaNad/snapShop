@@ -1,0 +1,9 @@
+{% extends 'shop/base.html' %}
+{% block content %}
+<h1 class="text-center my-4">Admin Dashboard</h1>
+
+<div class="d-flex flex-column align-items-center">
+    <a href="{% url 'manage_products' %}" class="btn btn-primary mb-3">Manage Products</a>
+    <a href="{% url 'return_requests' %}" class="btn btn-secondary">Manage Return Requests</a>
+</div>
+{% endblock %}
