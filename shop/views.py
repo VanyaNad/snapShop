@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib import messages
+from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.utils.timezone import now
@@ -19,10 +20,11 @@ class SuperuserRequiredMixin(UserPassesTestMixin):
         return self.request.user.is_superuser
 
 
-class CreatePurchaseView(FormView):
+class CreatePurchaseView(LoginRequiredMixin, CreateView):
     """
-    Handles the creation of purchases for logged-in users using FormView.
+    Handles the creation of purchases for logged-in users using CreateView.
     """
+    model = Purchase
     form_class = PurchaseForm
     success_url = reverse_lazy('purchase_list')
 
@@ -33,39 +35,20 @@ class CreatePurchaseView(FormView):
         product: Product = get_object_or_404(Product, id=self.kwargs['product_id'])
         quantity: int = form.cleaned_data['quantity']
 
-        if not self.request.user.is_authenticated:
-            messages.error(self.request, settings.MESSAGES.get('login_required'))
-            return redirect('login')
+        try:
+            with transaction.atomic():
+                purchase = product.purchase_product(self.request.user, quantity)
 
-        if quantity > product.stock:
-            messages.error(self.request, settings.MESSAGES.get('insufficient_stock').format(stock=product.stock))
+            messages.success(
+                self.request,
+                settings.MESSAGES.get('purchase_success').format(quantity=quantity, product=product.name)
+            )
+
             return redirect(self.success_url)
 
-        total_price: float = quantity * product.price
-        if total_price > self.request.user.wallet:
-            messages.error(self.request, settings.MESSAGES.get('insufficient_funds'))
+        except ValueError as e:
+            messages.error(self.request, str(e))
             return redirect(self.success_url)
-
-        # Update product stock and user's wallet
-        product.stock -= quantity
-        product.save()
-        self.request.user.wallet -= total_price
-        self.request.user.save()
-
-        # Create purchase record
-        Purchase.objects.create(user=self.request.user, product=product, quantity=quantity)
-        messages.success(
-            self.request,
-            settings.MESSAGES.get('purchase_success').format(quantity=quantity, product=product.name)
-        )
-        return super().form_valid(form)
-
-    def form_invalid(self, form: PurchaseForm) -> HttpResponseRedirect:
-        """
-        Handles the logic when the form is invalid.
-        """
-        messages.error(self.request, settings.MESSAGES.get('invalid_quantity', "Invalid quantity selected."))
-        return redirect(self.success_url)
 
 
 class RequestReturnView(LoginRequiredMixin, FormView):
@@ -179,15 +162,12 @@ class PurchaseListView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs) -> dict:
         user = self.request.user
-        purchased_products = Purchase.objects.filter(user=user).exclude(quantity=0)
-        for purchase in purchased_products:
-            return_expired = (now() - purchase.created_at).seconds > settings.RETURN_REQUEST_EXPIRATION
-            purchase.can_return = not return_expired
+        return_requests = ReturnRequest.objects.filter(purchase__user=user)
 
         return {
-            'purchased_products': purchased_products,
-            'pending_requests': ReturnRequest.objects.filter(purchase__user=user, status='pending'),
-            'returned_products': ReturnRequest.objects.filter(purchase__user=user, status='approved'),
+            'purchased_products': user.purchases.exclude(quantity=0),
+            'pending_requests': return_requests.filter(status='pending'),
+            'returned_products': return_requests.filter(status='approved'),
         }
 
 

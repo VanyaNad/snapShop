@@ -1,6 +1,6 @@
 from django import forms
 from django.contrib.auth.forms import UserCreationForm
-from .models import Product, User, ReturnRequest
+from .models import Product, User, ReturnRequest, Purchase
 
 
 class ProductForm(forms.ModelForm):
@@ -31,14 +31,13 @@ class ReturnRequestForm(forms.ModelForm):
         fields = ['quantity', 'reason']
 
 
-class PurchaseForm(forms.Form):
+class PurchaseForm(forms.ModelForm):
     """
     Form for validating purchase quantities.
     """
-    quantity = forms.IntegerField(min_value=1, error_messages={
-        'required': "Please enter a quantity.",
-        'min_value': "Quantity must be at least 1."
-    })
+    class Meta:
+        model = Purchase
+        fields = ['quantity']
 
 
 class DeleteProductForm(forms.Form):
@@ -48,8 +47,11 @@ class DeleteProductForm(forms.Form):
 
     def clean(self):
         cleaned_data = super().clean()
-        product = Product.objects.filter(pk=self.product_id).first()
-        if not product:
+        if self.product_id is None:
+            raise forms.ValidationError("Product ID is required.")
+        try:
+            product = Product.objects.get(pk=self.product_id)
+        except Product.DoesNotExist:
             raise forms.ValidationError("Product not found.")
 
         # Check for pending

@@ -1,4 +1,5 @@
-from django.db import models
+from datetime import timedelta
+from django.db import models, transaction
 from django.contrib.auth.models import AbstractUser
 from django.utils.timezone import now
 from snapShop import settings
@@ -22,15 +23,38 @@ class Product(models.Model):
     def __str__(self):
         return self.name
 
+    def purchase_product(self, user, quantity):
+        if quantity > self.stock:
+            raise ValueError(settings.MESSAGES.get('insufficient_stock').format(stock=self.stock))
+
+        total_price = quantity * self.price
+        if total_price > user.wallet:
+            raise ValueError(settings.MESSAGES.get('insufficient_funds'))
+
+        with transaction.atomic():
+            self.stock -= quantity
+            self.save()
+
+            user.wallet -= total_price
+            user.save()
+
+            return Purchase.objects.create(user=user, product=self, quantity=quantity)
+
 
 class Purchase(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='purchases')
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     quantity = models.PositiveIntegerField()
-    created_at = models.DateTimeField(default=now)
+    created_at = models.DateTimeField(auto_now_add=True)
 
+    @property
     def total_price(self):
         return self.product.price * self.quantity
+
+    @property
+    def can_return(self):
+        expiration_period = timedelta(seconds=settings.RETURN_REQUEST_EXPIRATION)
+        return (now() - self.created_at).total_seconds() <= expiration_period.total_seconds()
 
     class Meta:
         ordering = ['-created_at']
@@ -47,7 +71,7 @@ class ReturnRequest(models.Model):
     quantity = models.PositiveIntegerField(default=1)
     reason = models.TextField(blank=True, null=True)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
-    created_at = models.DateTimeField(default=now)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"Return Request for {self.purchase.product.name}"
